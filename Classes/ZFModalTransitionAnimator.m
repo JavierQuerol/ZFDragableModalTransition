@@ -29,13 +29,14 @@
         _bounces = YES;
         _behindViewScale = 0.9f;
         _behindViewAlpha = 1.0f;
-        _transitionDuration = 0.8f;
         
-        [[UIDevice currentDevice] beginGeneratingDeviceOrientationNotifications];
-        [[NSNotificationCenter defaultCenter] addObserver:self
+        if (![self isIOS8]) {
+            [[UIDevice currentDevice] beginGeneratingDeviceOrientationNotifications];
+            [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(orientationChanged:)
-                                                     name:UIApplicationDidChangeStatusBarFrameNotification
+                                                     name:UIDeviceOrientationDidChangeNotification
                                                    object:nil];
+        }
     }
     return self;
 }
@@ -70,7 +71,7 @@
 
 - (NSTimeInterval)transitionDuration:(id<UIViewControllerContextTransitioning>)transitionContext
 {
-    return self.transitionDuration;
+    return 0.6;
 }
 
 - (void)animateTransition:(id<UIViewControllerContextTransitioning>)transitionContext
@@ -81,8 +82,9 @@
     // Grab the from and to view controllers from the context
     UIViewController *fromViewController = [transitionContext viewControllerForKey:UITransitionContextFromViewControllerKey];
     UIViewController *toViewController = [transitionContext viewControllerForKey:UITransitionContextToViewControllerKey];
-    
-    
+	
+	fromViewController.view.layer.shouldRasterize = YES;
+	
     if (!self.isDismiss) {
         
         CGRect startRect;
@@ -113,8 +115,8 @@
         
         [UIView animateWithDuration:[self transitionDuration:transitionContext]
                               delay:0
-             usingSpringWithDamping:0.8
-              initialSpringVelocity:0.1
+             usingSpringWithDamping:8
+              initialSpringVelocity:10
                             options:UIViewAnimationOptionCurveEaseOut
                          animations:^{
                              
@@ -128,13 +130,12 @@
                              
                          } completion:^(BOOL finished) {
                              [transitionContext completeTransition:![transitionContext transitionWasCancelled]];
-                             
                          }];
     } else {
         
         [[transitionContext containerView] bringSubviewToFront:fromViewController.view];
         
-        if (![self isPriorToIOS8]) {
+        if (![self isIOS8]) {
             toViewController.view.layer.transform = CATransform3DScale(toViewController.view.layer.transform, self.behindViewScale, self.behindViewScale, 1);
         }
         
@@ -164,8 +165,8 @@
         
         [UIView animateWithDuration:[self transitionDuration:transitionContext]
                               delay:0
-             usingSpringWithDamping:0.8
-              initialSpringVelocity:0.1
+             usingSpringWithDamping:5
+              initialSpringVelocity:5
                             options:UIViewAnimationOptionCurveEaseOut
                          animations:^{
                              CGFloat scaleBack = (1 / self.behindViewScale);
@@ -174,7 +175,7 @@
                              fromViewController.view.frame = endRect;
                          } completion:^(BOOL finished) {
                              [transitionContext completeTransition:![transitionContext transitionWasCancelled]];
-                             
+							 toViewController.view.layer.shouldRasterize = NO;
                          }];
     }
 }
@@ -197,7 +198,7 @@
         } else {
             self.panLocationStart = location.x;
         }
-        [self.modalController dismissViewControllerAnimated:YES completion:nil];
+		[self.modalController dismissViewControllerAnimated:YES completion:nil];
     }
     
     else if (recognizer.state == UIGestureRecognizerStateChanged) {
@@ -244,7 +245,7 @@
     UIViewController *fromViewController = [transitionContext viewControllerForKey:UITransitionContextFromViewControllerKey];
     UIViewController *toViewController = [transitionContext viewControllerForKey:UITransitionContextToViewControllerKey];
     
-    if (![self isPriorToIOS8]) {
+    if (![self isIOS8]) {
         toViewController.view.layer.transform = CATransform3DScale(toViewController.view.layer.transform, self.behindViewScale, self.behindViewScale, 1);
     }
     
@@ -327,8 +328,8 @@
     
     [UIView animateWithDuration:[self transitionDuration:transitionContext]
                           delay:0
-         usingSpringWithDamping:0.8
-          initialSpringVelocity:0.1
+         usingSpringWithDamping:5
+          initialSpringVelocity:5
                         options:UIViewAnimationOptionCurveEaseOut
                      animations:^{
                          CGFloat scaleBack = (1 / self.behindViewScale);
@@ -338,6 +339,7 @@
                      } completion:^(BOOL finished) {
                          [transitionContext completeTransition:YES];
                          self.modalController = nil;
+						 toViewController.view.layer.shouldRasterize = NO;
                      }];
     
 }
@@ -351,8 +353,8 @@
     
     [UIView animateWithDuration:0.4
                           delay:0
-         usingSpringWithDamping:0.8
-          initialSpringVelocity:0.1
+         usingSpringWithDamping:5
+          initialSpringVelocity:5
                         options:UIViewAnimationOptionCurveEaseOut
                      animations:^{
                          
@@ -419,7 +421,7 @@
 
 #pragma mark - Utils
 
-- (BOOL)isPriorToIOS8
+- (BOOL)isIOS8
 {
     NSComparisonResult order = [[UIDevice currentDevice].systemVersion compare: @"8.0" options: NSNumericSearch];
     if (order == NSOrderedSame || order == NSOrderedDescending) {
@@ -431,13 +433,43 @@
 
 #pragma mark - Orientation
 
+
 - (void)orientationChanged:(NSNotification *)notification
 {
-    UIViewController *backViewController = self.modalController.presentingViewController;
-    backViewController.view.bounds = backViewController.view.window.bounds;
-    if (![self isPriorToIOS8]) {
-        backViewController.view.layer.transform = CATransform3DScale(backViewController.view.layer.transform, self.behindViewScale, self.behindViewScale, 1);
+    UIDeviceOrientation orientation = [[UIDevice currentDevice] orientation];
+    if (orientation == UIDeviceOrientationPortraitUpsideDown || orientation == UIDeviceOrientationUnknown) {
+        return;
     }
+    
+    UIViewController *toViewController = self.modalController.presentingViewController;
+    toViewController.view.transform = CGAffineTransformIdentity;
+    [self rotateLayer:toViewController.view.layer];
+}
+
+-(void)rotateLayer: (CALayer *)layer
+{
+    UIDeviceOrientation orientation = [[UIDevice currentDevice] orientation];
+    
+    CGAffineTransform rotate;
+    CGAffineTransform scale = CGAffineTransformMakeScale(self.behindViewScale, self.behindViewScale);
+    
+    switch (orientation) {
+        case UIDeviceOrientationLandscapeLeft:
+            rotate = CGAffineTransformMakeRotation(M_PI_2);
+            break;
+        case UIDeviceOrientationLandscapeRight:
+            rotate = CGAffineTransformMakeRotation(-M_PI_2);
+            break;
+        default:
+            rotate = CGAffineTransformMakeRotation(0.0);
+            break;
+    }
+    
+    layer.affineTransform = CGAffineTransformConcat(rotate, scale);
+    
+    [layer setBounds:self.modalController.view.bounds];
+    [layer setPosition:CGPointMake(CGRectGetMidX(self.modalController.view.frame),
+                                   CGRectGetMidY(self.modalController.view.frame))];
 }
 
 @end
@@ -474,17 +506,15 @@
         return;
     }
     
-    CGFloat topVerticalOffset = -self.scrollview.contentInset.top;
-    
-    if (nowPoint.y > prevPoint.y && self.scrollview.contentOffset.y <= topVerticalOffset) {
+    if (nowPoint.y > prevPoint.y && self.scrollview.contentOffset.y <= 0) {
         self.isFail = @NO;
-    } else if (self.scrollview.contentOffset.y >= topVerticalOffset) {
+    } else if (self.scrollview.contentOffset.y >= 0) {
         self.state = UIGestureRecognizerStateFailed;
         self.isFail = @YES;
     } else {
         self.isFail = @NO;
     }
-    
 }
 
 @end
+
